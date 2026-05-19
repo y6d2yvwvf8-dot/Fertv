@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en-CA">
+<head>
+<meta charset="UTF-8">
+<title>Web IPTV Player</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- HLS -->
+https://cdn.jsdelivr.net/npm/hls.js@latestscript>
+
+<style>
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #111;
+  color: #fff;
+}
+
+#login {
+  max-width: 400px;
+  margin: 80px auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+input, button {
+  padding: 10px;
+  font-size: 16px;
+}
+
+#app {
+  display: flex;
+  height: 100vh;
+}
+
+aside {
+  width: 280px;
+  background: #1b1b1b;
+  overflow-y: auto;
+}
+
+aside button {
+  width: 100%;
+  border: none;
+  background: #222;
+  color: white;
+}
+
+#list div {
+  padding: 10px;
+  cursor: pointer;
+  border-bottom: 1px solid #333;
+}
+
+#list div:hover {
+  background: #333;
+}
+
+main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+video {
+  width: 100%;
+  height: 65%;
+  background: black;
+}
+
+#epg {
+  height: 35%;
+  padding: 10px;
+  background: #111;
+  overflow-y: auto;
+  border-top: 1px solid #333;
+}
+
+#epg-search {
+  width: 100%;
+  padding: 6px;
+  margin-bottom: 8px;
+  background: #222;
+  border: 1px solid #333;
+  color: #fff;
+}
+
+#epg-now {
+  font-weight: bold;
+  margin-bottom: 8px;
+}
+
+.epg-item {
+  padding: 6px;
+  border-bottom: 1px solid #333;
+  font-size: 14px;
+}
+
+.epg-time {
+  color: #aaa;
+  font-size: 12px;
+}
+
+.epg-search-item {
+  padding: 6px;
+  cursor: pointer;
+  border-bottom: 1px solid #333;
+}
+
+.epg-search-item:hover {
+  background: #333;
+}
+
+.epg-search-channel {
+  font-size: 12px;
+  color: #aaa;
+}
+</style>
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div id="login">
+  <h2>Xtream Codes Login</h2>
+  <input id="server" placeholder="http://server:port">
+  <input id="username" placeholder="Username">
+  <input id="password" placeholder="Password" type="password">
+  <button onclick="login()">Login</button>
+</div>
+
+<!-- APP -->
+<div id="app" hidden>
+  <aside>
+    <button onclick="loadLive()">Live TV</button>
+    <div id="list"></div>
+  </aside>
+
+  <main>
+    <video id="player" controls autoplay></video>
+
+    <div id="epg">
+      <input id="epg-search" placeholder="Search EPG…" oninput="searchEPG(this.value)">
+      <div id="epg-search-results"></div>
+
+      <h3 id="epg-channel">EPG</h3>
+      <div id="epg-now"></div>
+      <div id="epg-list"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+let apiBase = "";
+let hls;
+
+const epgCache = {};
+const channelMap = {};
+
+// LOGIN
+function login() {
+  const server = document.getElementById("server").value;
+  const user = document.getElementById("username").value;
+  const pass = document.getElementById("password").value;
+
+  apiBase = `${server}/player_api.php?username=${user}&password=${pass}`;
+
+  fetch(apiBase)
+    .then(r => r.json())
+    .then(data => {
+      if (data.user_info?.auth === 1) {
+        document.getElementById("login").hidden = true;
+        document.getElementById("app").hidden = false;
+        loadLive();
+      } else {
+        alert("Login failed");
+      }
+    });
+}
+
+// LOAD LIVE CHANNELS
+function loadLive() {
+  fetch(`${apiBase}&action=get_live_streams`)
+    .then(r => r.json())
+    .then(channels => {
+      const list = document.getElementById("list");
+      list.innerHTML = "";
+
+      channels.forEach(ch => {
+        channelMap[ch.stream_id] = ch;
+        const div = document.createElement("div");
+        div.textContent = ch.name;
+        div.onclick = () => playStream(ch.stream_id, ch.name);
+        list.appendChild(div);
+      });
+    });
+}
+
+// PLAY STREAM
+function playStream(streamId, channelName) {
+  const video = document.getElementById("player");
+  loadEPG(streamId, channelName);
+
+  const base = apiBase.replace("player_api.php", "");
+  const url = `${base}live/${streamId}.m3u8`;
+
+  if (Hls.isSupported()) {
+    if (hls) hls.destroy();
+    hls = new Hls();
+    hls.loadSource(url);
+    hls.attachMedia(video);
+  } else {
+    video.src = url;
+  }
+}
+
+// LOAD EPG
+function loadEPG(streamId, channelName) {
+  document.getElementById("epg-channel").textContent = channelName;
+
+  fetch(`${apiBase}&action=get_simple_data_table&stream_id=${streamId}`)
+    .then(r => r.json())
+    .then(data => {
+      const epgNow = document.getElementById("epg-now");
+      const epgList = document.getElementById("epg-list");
+      epgList.innerHTML = "";
+
+      if (!data.epg_listings?.length) {
+        epgNow.textContent = "No EPG data available";
+        return;
+      }
+
+      epgCache[streamId] = {
+        channel: channelName,
+        listings: data.epg_listings
+      };
+
+      epgNow.textContent = `Now: ${data.epg_listings[0].title}`;
+
+      data.epg_listings.forEach(p => {
+        const div = document.createElement("div");
+        div.className = "epg-item";
+
+        const start = new Date(p.start * 1000).toLocaleTimeString("en-CA", {hour:"2-digit", minute:"2-digit"});
+        const end = new Date(p.end * 1000).toLocaleTimeString("en-CA", {hour:"2-digit", minute:"2-digit"});
+
+        div.innerHTML = `
+          <div class="epg-time">${start} – ${end}</div>
+          <div>${p.title}</div>
+        `;
+        epgList.appendChild(div);
+      });
+    });
+}
+
+// EPG SEARCH
+function searchEPG(query) {
+  const results = document.getElementById("epg-search-results");
+  results.innerHTML = "";
+  if (!query || query.length < 2) return;
+
+  const q = query.toLowerCase();
+
+  Object.entries(epgCache).forEach(([streamId, data]) => {
+    data.listings.forEach(p => {
+      const text = (p.title + " " + (p.description || "")).toLowerCase();
+      if (text.includes(q)) {
+        const div = document.createElement("div");
+        div.className = "epg-search-item";
+
+        const time = new Date(p.start * 1000).toLocaleTimeString("en-CA", {hour:"2-digit", minute:"2-digit"});
+
+        div.innerHTML = `
+          <div>${p.title}</div>
+          <div class="epg-search-channel">${data.channel} • ${time}</div>
+        `;
+
+        div.onclick = () => {
+          playStream(streamId, data.channel);
+          results.innerHTML = "";
+          document.getElementById("epg-search").value = "";
+        };
+
+        results.appendChild(div);
+      }
+    });
+  });
+}
+</script>
+
+</body>
+</html>
