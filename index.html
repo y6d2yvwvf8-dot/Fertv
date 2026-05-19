@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Xtream Codes Player</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+    <div id="login-form">
+        <h1>Xtream Codes Player</h1>
+        <input type="text" id="server" placeholder="Server URL">
+        <input type="text" id="username" placeholder="Username">
+        <input type="password" id="password" placeholder="Password">
+        <button onclick="login()">Login</button>
+    </div>
+
+    <div id="channel-display" style="display:none;">
+        <h2>Channels</h2>
+        <div id="channels"></div>
+
+        <h2>EPG</h2>
+        <div id="epg-data"></div>
+    </div>
+
+    <script src="app.js"></script>
+    <script src="epg.js"></script>
+</body>
+
+</html>
